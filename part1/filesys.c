@@ -44,8 +44,41 @@ void printInfo() {
     printf("Size of Image: %llu bytes\n", (unsigned long long)bs.totalSectors * bs.bytesPerSector);
 }
 
-int main() {
-    // Example usage of the functions
-    // You would typically check if mountImage succeeds before calling printInfo
+void startShell() {
+    char command[256];
+
+    while (1) {
+        printf("FAT32/> ");
+        scanf("%s", command);
+
+        if (strcmp(command, "info") == 0) {
+            printInfo();
+        } else if (strcmp(command, "exit") == 0) {
+            break;
+        } else {
+            printf("Unknown command.\n");
+        }
+    }
+}
+
+void cleanup() {
+    if (fat32Img) {
+        fclose(fat32Img);
+    }
+}
+
+int main(int argc, char *argv[]) {
+    if (argc != 2) {
+        printf("Usage: %s [FAT32 image file]\n", argv[0]);
+        return 1;
+    }
+
+    if (mountImage(argv[1]) != 0) {
+        return 1; // Exit if the image could not be mounted
+    }
+
+    startShell();
+    cleanup();
+
     return 0;
 }

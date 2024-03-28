@@ -1,84 +1,79 @@
-#include <inttypes.h>
-#include <string.h>
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <string.h>
 
-// Correctly defined FAT32BootSector structure
 typedef struct {
     uint16_t bytesPerSector;
     uint8_t sectorsPerCluster;
-    uint32_t totalSectors; // Assuming this represents totalSectors32
-    uint32_t fatSize; 
+    uint32_t totalSectors;
+    uint32_t FATSize; // Sectors per FAT
     uint32_t rootCluster;
-} FAT32BootSector; // Ensure this definition is terminated with a semicolon
+} FAT32BootSector;
 
-FILE *fat32Img;
-FAT32BootSector bs; // Only need to declare this once
+FAT32BootSector bs;
 
-// Function to mount the image
 int mountImage(const char *imageName) {
-    FILE *fp = fopen(imageName, "rb"); 
+    FILE *fp = fopen(imageName, "rb");
     if (!fp) {
         perror("Error opening image file");
         return -1;
     }
 
-    if (fread(&bs, sizeof(FAT32BootSector), 1, fp) != 1) {
-        perror("Error reading boot sector");
-        fclose(fp);
-        return -1;
-    }
+    // Example offsets may need adjustment based on your FAT32 structure
+    fseek(fp, 11, SEEK_SET); fread(&bs.bytesPerSector, sizeof(bs.bytesPerSector), 1, fp);
+    fseek(fp, 13, SEEK_SET); fread(&bs.sectorsPerCluster, sizeof(bs.sectorsPerCluster), 1, fp);
+    fseek(fp, 32, SEEK_SET); fread(&bs.totalSectors, sizeof(bs.totalSectors), 1, fp);
+    fseek(fp, 36, SEEK_SET); fread(&bs.FATSize, sizeof(bs.FATSize), 1, fp);
+    fseek(fp, 44, SEEK_SET); fread(&bs.rootCluster, sizeof(bs.rootCluster), 1, fp);
 
     fclose(fp);
     return 0;
 }
 
-// Function to print information
 void printInfo() {
     printf("Bytes Per Sector: %d\n", bs.bytesPerSector);
     printf("Sectors Per Cluster: %d\n", bs.sectorsPerCluster);
-    printf("Total Sectors: %d\n", bs.totalSectors); // Direct use of totalSectors
-    printf("FAT Size (Sectors): %d\n", bs.fatSize);
     printf("Root Cluster: %d\n", bs.rootCluster);
-    // Calculate the size of the image (in bytes) directly using totalSectors
-    printf("Size of Image: %llu bytes\n", (unsigned long long)bs.totalSectors * bs.bytesPerSector);
+    printf("Total # of Clusters in Data Region: %llu\n", (uint64_t)bs.totalSectors / bs.sectorsPerCluster);
+    printf("# of Entries in One FAT: %d\n", bs.FATSize * (bs.bytesPerSector / 4)); // 4 bytes per FAT entry assumption
+    printf("Size of Image (in bytes): %llu\n", (uint64_t)bs.totalSectors * bs.bytesPerSector);
 }
 
-void startShell() {
+void cleanup() {
+    // In this example, there's no dynamic memory to free, but if you allocate memory, free it here.
+    // e.g., if you had dynamically allocated memory, you would free it like so:
+    // free(your_allocated_resource);
+}
+
+void startShell(const char* imageName) {
     char command[256];
-
-    while (1) {
-        printf("fat32.img/> ");
-        scanf("%s", command);
-
+    printf("%s/> ", imageName);
+    while (scanf("%255s", command) != EOF) {
         if (strcmp(command, "info") == 0) {
             printInfo();
         } else if (strcmp(command, "exit") == 0) {
+            cleanup();
+            printf("Exiting...\n");
             break;
         } else {
             printf("Unknown command.\n");
         }
-    }
-}
-
-void cleanup() {
-    if (fat32Img) {
-        fclose(fat32Img);
+        printf("%s/> ", imageName);
     }
 }
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {
-        printf("Usage: %s [FAT32 image file]\n", argv[0]);
+        fprintf(stderr, "Usage: %s <FAT32 image file>\n", argv[0]);
         return 1;
     }
 
     if (mountImage(argv[1]) != 0) {
-        return 1; // Exit if the image could not be mounted
+        return 1;
     }
 
-    startShell();
-    cleanup();
+    startShell(argv[1]);
 
     return 0;
 }

@@ -48,7 +48,7 @@ void startShell() {
     char command[256];
 
     while (1) {
-        printf("FAT32/> ");
+        printf("fat32.img/> ");
         scanf("%s", command);
 
         if (strcmp(command, "info") == 0) {

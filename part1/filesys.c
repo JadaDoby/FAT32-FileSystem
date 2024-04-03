@@ -38,6 +38,7 @@ int mountImage(const char *imageName) {
     // Read sectors per FAT
     fread(&bs.FATSize, sizeof(bs.FATSize), 1, fp);
     // Read root cluster
+    fseek(fp, 44, SEEK_SET);
     fread(&bs.rootCluster, sizeof(bs.rootCluster), 1, fp);
 
     fclose(fp);

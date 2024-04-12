@@ -4,7 +4,7 @@
 #include <string.h>
 #include <unistd.h>
 #include "lexer.h"
-#include<ctype.h>
+#include <ctype.h>
 
 #define MAX_STACK_SIZE 128
 
@@ -30,9 +30,6 @@ typedef struct __attribute__((packed)) directory_entry
     uint16_t DIR_FstClusLO;
     uint32_t DIR_FileSize;
 } dentry_t;
-
-
-
 
 FAT32BootSector bs;
 uint32_t currentDirectoryCluster; // Global variable to store the current directory cluster
@@ -67,7 +64,7 @@ void initDirStack()
 }
 
 // Push a directory onto the stack
-void pushDir(const char *dir,u_int32_t clusternum)
+void pushDir(const char *dir, u_int32_t clusternum)
 {
     if (dirStack.size < MAX_STACK_SIZE)
     {
@@ -77,7 +74,7 @@ void pushDir(const char *dir,u_int32_t clusternum)
     }
 }
 
-// Pop a directory from the stack (call free on the popped directory when done)
+// Pop a directory from the stack
 char *popDir()
 {
     if (dirStack.size > 0)
@@ -99,13 +96,13 @@ void freeDirStack()
 char currentPath[128];
 const char *getCurrentDirPath()
 {
-    strcpy(currentPath, ""); 
+    strcpy(currentPath, "");
     for (int i = 0; i < dirStack.size; ++i)
     {
         strcat(currentPath, dirStack.directoryPath[i]);
         if (i < dirStack.size - 1)
         {
-            strcat(currentPath, "/"); 
+            strcat(currentPath, "/");
         }
     }
     return currentPath;
@@ -124,12 +121,12 @@ int main(int argc, char *argv[])
     }
     initDirStack();
 
-    pushDir(argv[1],2);
+    pushDir(argv[1], 2);
 
     char *input;
     while (1)
     {
-        printf("%s/> ", getCurrentDirPath()); 
+        printf("%s/> ", getCurrentDirPath());
         input = get_input();
         tokenlist *tokens = get_tokens(input);
         processCommand(tokens); // Ensure this updates the dirStack as necessary
@@ -140,28 +137,28 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-    char *get_input(void)
+char *get_input(void)
+{
+    char *buffer = NULL;
+    int bufsize = 0;
+    char line[5];
+    while (fgets(line, 5, stdin) != NULL)
     {
-        char *buffer = NULL;
-        int bufsize = 0;
-        char line[5];
-        while (fgets(line, 5, stdin) != NULL)
-        {
-            int addby = 0;
-            char *newln = strchr(line, '\n');
-            if (newln != NULL)
-                addby = newln - line;
-            else
-                addby = 5 - 1;
-            buffer = (char *)realloc(buffer, bufsize + addby);
-            memcpy(&buffer[bufsize], line, addby);
-            bufsize += addby;
-            if (newln != NULL)
-                break;
-        }
-        buffer = (char *)realloc(buffer, bufsize + 1);
-        buffer[bufsize] = 0;
-        return buffer;
+        int addby = 0;
+        char *newln = strchr(line, '\n');
+        if (newln != NULL)
+            addby = newln - line;
+        else
+            addby = 5 - 1;
+        buffer = (char *)realloc(buffer, bufsize + addby);
+        memcpy(&buffer[bufsize], line, addby);
+        bufsize += addby;
+        if (newln != NULL)
+            break;
+    }
+    buffer = (char *)realloc(buffer, bufsize + 1);
+    buffer[bufsize] = 0;
+    return buffer;
 }
 
 tokenlist *new_tokenlist(void)
@@ -296,9 +293,10 @@ uint32_t findDirectoryCluster(const char *dirName)
         printf("Memory allocation failed\n");
         return 0;
     }
-    
+
     printf("Searching for directory: %s\n", dirName);
-    if(strcmp(dirName,"..")==0){
+    if (strcmp(dirName, "..") == 0)
+    {
         if (dirStack.size == 1)
         {
             printf("Already at root directory\n");
@@ -312,7 +310,8 @@ uint32_t findDirectoryCluster(const char *dirName)
         return parent;
     }
 
-    if(strcmp(dirName,".")==0){
+    if (strcmp(dirName, ".") == 0)
+    {
         free(buffer);
         return currentDirectoryCluster;
     }
@@ -442,7 +441,7 @@ void processCommand(tokenlist *tokens)
             printf("Changed directory to %s\n", tokens->items[1]);
             if (strcmp(tokens->items[1], "..") != 0 && strcmp(tokens->items[1], ".") != 0)
             {
-                pushDir(tokens->items[1],newDirCluster);
+                pushDir(tokens->items[1], newDirCluster);
             }
         }
         else

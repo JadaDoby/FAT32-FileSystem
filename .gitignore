@@ -1,3 +1,5 @@
 .vscode
 fat32.img
 filesys.exe
+.gitignore
+part1/file.exe

@@ -341,7 +341,6 @@ void dbg_print_dentry(dentry_t *dentry) {
     printf("DIR_FstClusLO: 0x%x\n", dentry->DIR_FstClusLO);
     printf("DIR_FileSize: %u\n", dentry->DIR_FileSize);
 }
-
 void listDirectory(uint32_t cluster) {
     uint8_t *buffer = malloc(bs.bytesPerSector * bs.sectorsPerCluster);
     if (!buffer) {
@@ -349,7 +348,6 @@ void listDirectory(uint32_t cluster) {
         return;
     }
     // Keep reading clusters until the end of the directory or until the end-of-chain marker is found
-    printf("cluster: %d\n", cluster);
     while (cluster < 0x0FFFFFF8) {
         readCluster(cluster, buffer);
         dentry_t *entry = (dentry_t *)buffer;
@@ -361,16 +359,15 @@ void listDirectory(uint32_t cluster) {
             if ((entry->DIR_Attr & 0x0F) == 0x0F)
                 continue; // Skip long name entries
             if (!(entry->DIR_Attr & 0x10))
-                continue;
+                continue; // Skip non-directory entries (if only listing directories)
             // Print the directory entry name
             char name[12];
             memcpy(name, entry->DIR_Name, 11);
             name[11] = '\0'; // Null-terminate the string
-            printf("%s\n", name);
+            printf("%s\n", name); // Print only names without cluster number
         }
         // Move to the next cluster in the chain
         cluster = readFATEntry(cluster);
-        printf("cluster: %d\n", cluster);
     }
     free(buffer);
 }

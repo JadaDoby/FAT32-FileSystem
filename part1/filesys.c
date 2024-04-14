@@ -10,32 +10,43 @@
 #define MAX_STACK_SIZE 128
 #define ATTR_DIRECTORY 0x10
 #define ENTRY_SIZE 32  
-#define MAX_CLUSTERS 
+#define MAX_OPEN_FILES 16  
+
 
 typedef struct { 
     uint16_t bytesPerSector;
     uint8_t sectorsPerCluster;
     uint32_t totalSectors;
-    uint32_t FATSize; // Sectors per FAT
+    uint32_t FATSize; 
     uint32_t rootCluster;
-    uint16_t reservedSectors; // Added: Number of reserved sectors
-    uint8_t numFATs;          // Added: Number of FATs
-    uint32_t firstDataSector; // Calculated first data sector
+    uint16_t reservedSectors; 
+    uint8_t numFATs;         
+    uint32_t firstDataSector; 
 } FAT32BootSector;
 
 typedef struct __attribute__((packed)) directory_entry {
     char DIR_Name[11];
     uint8_t DIR_Attr;
-    char padding_1[8]; // Placeholder for unused fields
+    char padding_1[8]; 
     uint16_t DIR_FstClusHI;
-    char padding_2[4]; // Placeholder for unused fields
+    char padding_2[4]; 
     uint16_t DIR_FstClusLO;
     uint32_t DIR_FileSize;
 } dentry_t;
 
 FAT32BootSector bs;
-uint32_t currentDirectoryCluster; // Global variable to store the current directory cluster
-int fd;  // File descriptor for the FAT32 image
+uint32_t currentDirectoryCluster; // Global variable 
+int fd;  
+
+typedef struct {
+    char filename[12];  
+    char mode[4];       
+    int offset;         
+    int isOpeninuse;         
+} OpenFile;
+
+OpenFile openFiles[MAX_OPEN_FILES];  //Array of open files
+
 
 // Function prototypes
 int mountImage(const char *imageName);
@@ -68,7 +79,8 @@ bool fileExists(const char* filename);
 void toUpperCase(char *str);
 int expandDirectory(uint32_t parentCluster);  
 void rightTrim(char *str);
-
+int openFile(const char *filename, const char *mode);
+void initOpenFiles();
 
 typedef struct{
     char *directoryPath[MAX_STACK_SIZE];
@@ -682,23 +694,24 @@ int linkClusterToDirectory(uint32_t directoryCluster, uint32_t newCluster) {
 
 void processCommand(tokenlist *tokens) {
     if (tokens->size == 0) return;
+
     if (strcmp(tokens->items[0], "info") == 0) {
         printInfo();
-    } else if (strcmp(tokens->items[0], "cd") == 0 && tokens->size > 1) {
-        uint32_t newDirCluster = findDirectoryCluster(tokens->items[1]);
-        printf("newDirCluster: %d\n", newDirCluster);
-        if (newDirCluster) {
-            currentDirectoryCluster = newDirCluster;
-            printf("Changed directory to %s\n", tokens->items[1]);
-            if (strcmp(tokens->items[1], "..") != 0 && strcmp(tokens->items[1], ".") != 0) {
-                pushDir(tokens->items[1], newDirCluster);
+    } else if (strcmp(tokens->items[0], "cd") == 0) {
+        if (tokens->size > 1) {
+            uint32_t newDirCluster = findDirectoryCluster(tokens->items[1]);
+            if (newDirCluster) {
+                currentDirectoryCluster = newDirCluster;
+                printf("Changed directory to %s\n", tokens->items[1]);
+                if (strcmp(tokens->items[1], "..") != 0 && strcmp(tokens->items[1], ".") != 0) {
+                    pushDir(tokens->items[1], newDirCluster);
+                }
+            } else {
+                printf("Directory not found: %s\n", tokens->items[1]);
             }
-        } else {
-            printf("Directory not found: %s\n", tokens->items[1]);
         }
     } else if (strcmp(tokens->items[0], "ls") == 0) {
         listDirectory(currentDirectoryCluster);
-        printf("Current directory cluster: %d\n", currentDirectoryCluster);
     } else if (strcmp(tokens->items[0], "mkdir") == 0 && tokens->size > 1) {
         if (createDirectory(tokens->items[1]) == 0) {
             printf("Directory created: %s\n", tokens->items[1]);
@@ -712,13 +725,14 @@ void processCommand(tokenlist *tokens) {
             printf("Failed to create file: %s\n", tokens->items[1]);
         }
     } else if (strcmp(tokens->items[0], "mount") == 0 && tokens->size > 1) {
-        if (mountImage(tokens->items[1])) {
+        if (mountImage(tokens->items[1]) == 0) {
             printf("Mounted image: %s\n", tokens->items[1]);
         } else {
             printf("Failed to mount image: %s\n", tokens->items[1]);
         }
+    } else if (strcmp(tokens->items[0], "open") == 0 && tokens->size == 3) {
+        openFile(tokens->items[1], tokens->items[2]);
     } else if (strcmp(tokens->items[0], "exit") == 0) {
-        // Properly handle exit
         printf("Exiting program.\n");
         exit(0);  // Terminate the program cleanly
     } else {
@@ -726,6 +740,8 @@ void processCommand(tokenlist *tokens) {
     }
 }
 
+
+        
 
 bool is_8_3_format_directory(const char* name) {
     if (!name) return false;
@@ -882,3 +898,47 @@ void rightTrim(char *str) {
         end--;
     }
 }
+void initOpenFiles() {
+    for (int i = 0; i < MAX_OPEN_FILES; i++) {
+        openFiles[i].isOpeninuse = 0;  // Mark all entries as unused
+    }
+}
+int openFile(const char *filename, const char *mode) {
+    if (!is_8_3_format_filename(filename)) {
+        printf("Error: Invalid filename format.\n");
+        return -1;
+    }
+    if (strcmp(mode, "-r") != 0 && strcmp(mode, "-w") != 0 && strcmp(mode, "-rw") != 0 && strcmp(mode, "-wr") != 0) {
+        printf("Error: Invalid mode. Use -r, -w, -rw, or -wr.\n");
+        return -1;
+    }
+
+    if (!fileExists(filename)) {
+        printf("Error: File '%s' does not exist.\n", filename);
+        return -1;
+    }
+
+    // Check if file is already open
+    for (int i = 0; i < MAX_OPEN_FILES; i++) {
+        if (openFiles[i].isOpeninuse && strncmp(openFiles[i].filename, filename, 11) == 0) {
+            printf("Error: File '%s' is already open.\n", filename);
+            return -1;
+        }
+    }
+
+    // Find an empty slot and open the file
+    for (int i = 0; i < MAX_OPEN_FILES; i++) {
+        if (!openFiles[i].isOpeninuse) {
+            strncpy(openFiles[i].filename, filename, 11);
+            strcpy(openFiles[i].mode, mode + 1); // Skip the '-' in mode for internal storage
+            openFiles[i].offset = 0;
+            openFiles[i].isOpeninuse = 1;
+            printf("File '%s' opened in mode %s.\n", filename, mode);
+            return 0;
+        }
+    }
+
+    printf("Error: Too many open files.\n");
+    return -1;
+}
+

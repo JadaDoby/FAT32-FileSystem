@@ -81,6 +81,7 @@ int expandDirectory(uint32_t parentCluster);
 void rightTrim(char *str);
 int openFile(const char *filename, const char *mode);
 void initOpenFiles();
+int closeFile(const char *filename);
 
 typedef struct{
     char *directoryPath[MAX_STACK_SIZE];
@@ -691,7 +692,6 @@ int linkClusterToDirectory(uint32_t directoryCluster, uint32_t newCluster) {
 
     return 0; // Success
 }
-
 void processCommand(tokenlist *tokens) {
     if (tokens->size == 0) return;
 
@@ -732,6 +732,8 @@ void processCommand(tokenlist *tokens) {
         }
     } else if (strcmp(tokens->items[0], "open") == 0 && tokens->size == 3) {
         openFile(tokens->items[1], tokens->items[2]);
+    } else if (strcmp(tokens->items[0], "close") == 0 && tokens->size == 2) {
+        closeFile(tokens->items[1]);
     } else if (strcmp(tokens->items[0], "exit") == 0) {
         printf("Exiting program.\n");
         exit(0);  // Terminate the program cleanly
@@ -739,7 +741,6 @@ void processCommand(tokenlist *tokens) {
         printf("Unknown command.\n");
     }
 }
-
 
         
 
@@ -940,5 +941,27 @@ int openFile(const char *filename, const char *mode) {
 
     printf("Error: Too many open files.\n");
     return -1;
+}
+int closeFile(const char *filename) {
+    if (!fileExists(filename)) {
+        printf("Error: File '%s' does not exist.\n", filename);
+        return -1;
+    }
+
+    int found = 0;
+    for (int i = 0; i < MAX_OPEN_FILES; i++) {
+        if (openFiles[i].isOpeninuse && strncmp(openFiles[i].filename, filename, 11) == 0) {
+            openFiles[i].isOpeninuse = 0;  // Mark the file as not in use
+            printf("File '%s' closed successfully.\n", filename);
+            found = 1;
+            break;
+        }
+    }
+
+    if (!found) {
+        printf("Error: File '%s' is not open.\n", filename);
+        return -1;
+    }
+    return 0;
 }
 

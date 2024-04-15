@@ -13,7 +13,7 @@
 #define MAX_STACK_SIZE 128
 #define ATTR_DIRECTORY 0x10
 #define ENTRY_SIZE 32
-#define MAX_OPEN_FILES 16
+#define MAX_OPEN_FILES 10
 
 typedef struct
 {
@@ -78,10 +78,10 @@ int writeEntryToDisk(uint32_t parentCluster, const uint8_t *entry);
 void writeFATEntry(uint32_t clusterNumber, uint32_t value);
 int initDirectoryCluster(uint32_t newCluster, uint32_t parentCluster);
 int updateParentDirectory(uint32_t parentCluster, const char *dirName, uint32_t newCluster);
-void clearCluster(uint32_t clusterNumber);
+void cleartheCluster(uint32_t clusterNumber);
 uint32_t clusterToSector(uint32_t cluster);
 bool is_8_3_format_directory(const char *name);
-bool isDirectoryFull(uint32_t parentCluster);
+bool DirectoryFull(uint32_t parentCluster);
 int linkClusterToDirectory(uint32_t currentDirectoryCluster, uint32_t newCluster);
 int addDirectory(uint32_t parentCluster, const char *dirName);
 int createFile(const char *fileName);

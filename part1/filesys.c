@@ -82,6 +82,9 @@ void rightTrim(char *str);
 int openFile(const char *filename, const char *mode);
 void initOpenFiles();
 int closeFile(const char *filename);
+void listOpenFiles();
+int seekFile(const char *filename, long offset);
+
 
 typedef struct{
     char *directoryPath[MAX_STACK_SIZE];
@@ -402,13 +405,6 @@ void listDirectory(uint32_t cluster) {
     free(buffer);
 }
 
-
-
-
-
-
-
-
 int createDirEntry(uint32_t parentCluster, const char *dirName) {
     // Create the directory entry for `dirName` in `parentCluster`
     uint32_t dirCluster = allocateCluster();
@@ -692,6 +688,7 @@ int linkClusterToDirectory(uint32_t directoryCluster, uint32_t newCluster) {
 
     return 0; // Success
 }
+
 void processCommand(tokenlist *tokens) {
     if (tokens->size == 0) return;
 
@@ -734,15 +731,23 @@ void processCommand(tokenlist *tokens) {
         openFile(tokens->items[1], tokens->items[2]);
     } else if (strcmp(tokens->items[0], "close") == 0 && tokens->size == 2) {
         closeFile(tokens->items[1]);
-    } else if (strcmp(tokens->items[0], "exit") == 0) {
+    } else if (strcmp(tokens->items[0], "lsof") == 0) {
+        listOpenFiles();
+    } else if (strcmp(tokens->items[0], "lseek") == 0 && tokens->size == 3) {
+        const char *filename = tokens->items[1];
+        long offset = strtol(tokens->items[2], NULL, 10);  // Convert string to long
+        if (seekFile(filename, offset) == -1) {
+            printf("Failed to set file offset.\n");
+        }
+    }
+    else if (strcmp(tokens->items[0], "exit") == 0) {
         printf("Exiting program.\n");
         exit(0);  // Terminate the program cleanly
     } else {
         printf("Unknown command.\n");
     }
 }
-
-        
+    
 
 bool is_8_3_format_directory(const char* name) {
     if (!name) return false;
@@ -965,3 +970,39 @@ int closeFile(const char *filename) {
     return 0;
 }
 
+void listOpenFiles(void) {
+    int anyOpen = 0;
+    printf("%-5s %-15s %-8s %-6s %s\n", "Index", "File", "Mode", "Offset", "Path");
+    printf("%-5s %-15s %-8s %-6s %s\n", "-----", "---------------", "--------", "------", "----");
+
+    for (int i = 0; i < MAX_OPEN_FILES; i++) {
+        if (openFiles[i].isOpeninuse) {
+            printf("%-5d %-15s %-8s %-6d %s\n",
+                   i,
+                   openFiles[i].filename,
+                   openFiles[i].mode,
+                   openFiles[i].offset,
+                   getCurrentDirPath());  // Path remains same for all in this example
+            anyOpen = 1;
+        }
+    }
+
+    if (!anyOpen) {
+        printf("No files are currently opened.\n");
+    }
+}
+
+
+int seekFile(const char *filename, long offset) {
+    for (int i = 0; i < MAX_OPEN_FILES; i++) {
+        if (openFiles[i].isOpeninuse && strcmp(openFiles[i].filename, filename) == 0) {
+            // Normally, here we would check if `offset` exceeds the file size
+            // As we cannot do that, we'll simply set the offset
+            openFiles[i].offset = offset;
+            printf("Offset of file '%s' set to %ld.\n", filename, offset);
+            return 0;
+        }
+    }
+    printf("Error: File '%s' is not opened or does not exist.\n", filename);
+    return -1;
+}

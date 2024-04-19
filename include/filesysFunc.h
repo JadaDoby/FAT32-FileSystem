@@ -44,8 +44,15 @@ typedef struct
     char mode[4];
     int offset;
     int isOpeninuse;
+<<<<<<< Updated upstream
     uint32_t cluster;
+=======
+    int lastSessionId;
+    int sessionId;
+    uint32_t cluster;    // Starting cluster of the file
+>>>>>>> Stashed changes
 } OpenFile;
+
 
 typedef struct
 {
@@ -101,4 +108,8 @@ void updateDirectoryEntrySize(uint32_t cluster, uint32_t newSize);
 const char *getString(const tokenlist *tokens);
 int seekFile(const char *filename, long offset);
 void listOpenFiles(void);
+int findFreeSessionId();
+void formatFATNameToReadable(const char rawFATName[11], char readableName[13]);
+bool linkClusters(uint32_t lastCluster, uint32_t newCluster);
+
 #endif

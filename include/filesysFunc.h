@@ -101,4 +101,8 @@ void updateDirectoryEntrySize(uint32_t cluster, uint32_t newSize);
 const char *getString(const tokenlist *tokens);
 int seekFile(const char *filename, long offset);
 void listOpenFiles(void);
+bool findFile(const char *filename);
+bool deleteFile(const char *filename);
+void writeCluster(uint32_t cluster, const uint8_t *buffer);
+void clearFATEntries(uint32_t cluster);
 #endif

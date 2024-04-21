@@ -14,6 +14,7 @@
 #define ATTR_DIRECTORY 0x10
 #define ENTRY_SIZE 32
 #define MAX_OPEN_FILES 10
+#define MAX_DIR_ENTRIES 128
 
 typedef struct
 {
@@ -56,6 +57,7 @@ typedef struct
     int size;
     uint32_t clusterNumber[MAX_STACK_SIZE];
 } DirectoryStack;
+
 
 // Function prototypes
 int mountImage(const char *imageName);
@@ -107,5 +109,18 @@ void listOpenFiles(void);
 int findFreeSessionId();
 void formatFATNameToReadable(const char rawFATName[11], char readableName[13]);
 bool linkClusters(uint32_t lastCluster, uint32_t newCluster);
+void readFile(const char *filename, int size);
+bool fileIsOpen(const char *filename);
+bool deleteFile(const char *filename);
+int removeDirectory(const char *dirName);
+bool isDirectoryEmpty(uint32_t dirCluster);
+void writeCluster(uint32_t cluster, const uint8_t *buffer);
+void clearFATEntries(uint32_t cluster);
+bool isAnyFileOpenInDirectory(uint32_t dirCluster);
+int removeDirectoryEntry(uint32_t dirCluster, const char *dirName);
+uint32_t findParentCluster(uint32_t dirCluster);
+void printStack(); //debugging
+void changeDirectory(const char *dirName) ; //debug
 
-#endif
+
+#endif 

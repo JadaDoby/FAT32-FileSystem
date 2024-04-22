@@ -277,17 +277,6 @@ void listDirectory(uint32_t cluster)
 }
         
 
-
-void readCluster(uint32_t clusterNumber, uint8_t *buffer) {
-    uint32_t firstSector = clusterToSector(clusterNumber);
-    ssize_t bytesRead = pread(fd, buffer, bs.bytesPerSector * bs.sectorsPerCluster, firstSector * bs.bytesPerSector);
-    if (bytesRead < bs.bytesPerSector * bs.sectorsPerCluster) {
-
-    }
-}
-
-
-
 int createDirEntry(uint32_t parentCluster, const char *dirName)
 {
     // Create the directory entry for `dirName` in `parentCluster`
@@ -711,14 +700,6 @@ void processCommand(tokenlist *tokens)
             printf("Failed to create directory: %s\n", tokens->items[1]);
         }
         }
-         else if (strcmp(tokens->items[0], "rmdir") == 0 && tokens->size > 1) {
- 
-        if (removeDirectory(tokens->items[1]) != 0) {
-            printf("Failed to remove directory: %s\n", tokens->items[1]);
-        } else {
-            printf("Directory removed: %s\n", tokens->items[1]);
-        }
-    }
     else if (strcmp(tokens->items[0], "creat") == 0 && tokens->size > 1)
     {
         if (createFile(tokens->items[1]) == 0)
@@ -1365,17 +1346,6 @@ int seekFile(const char *filename, long offset)
     return -1;
 }
 
-bool fileIsOpen(const char *filename)
-{
-    for (int i = 0; i < MAX_OPEN_FILES; i++)
-    {
-        if (openFiles[i].isOpeninuse && strncmp(openFiles[i].filename, filename, sizeof(openFiles[i].filename)) == 0)
-        {
-            return true;
-        }
-    }
-    return false;
-}
 
 bool deleteFile(const char *filename)
 {
@@ -1566,6 +1536,20 @@ bool isFileOpenForReading(const char *filename)
     }
     return false;
 }
+void listOpenFiles()
+{
+    printf(" Index        File            Mode      Offset  Path\n");
+    printf("------------ --------------- ---------- ------ ----\n");
+    for (int i = 0; i < MAX_OPEN_FILES; i++)
+    {
+        if (openFiles[i].isOpeninuse)
+        {
+            printf("%12d %-15s %-10s %6d %s\n",
+                   openFiles[i].sessionId, openFiles[i].filename, openFiles[i].mode,
+                   openFiles[i].offset, "fat32.img");
+        }
+    }
+}
 
 int readFile(const char *filename, size_t size)
 {
@@ -1754,44 +1738,7 @@ bool fileIsOpen(const char *filename) {
     }
     return false;  
 }
-bool isAnyFileOpenInDirectory(uint32_t dirCluster) {
-    uint8_t *buffer = malloc(bs.bytesPerSector * bs.sectorsPerCluster);
-    if (!buffer) {
-        perror("Memory allocation failed");
-        return true; // Assume true to prevent potential directory modification when memory allocation fails.
-    }
 
-    // Read the cluster data into buffer.
-    readCluster(dirCluster, buffer);
-    dentry_t *dentry = (dentry_t *)buffer;
-
-    // Check each entry in the directory cluster to see if any file is open.
-    for (int i = 0; i < (bs.bytesPerSector * bs.sectorsPerCluster) / sizeof(dentry_t); i++) {
-        if (dentry[i].DIR_Name[0] == 0x00) { // No more entries in directory.
-            break;
-        }
-        if (dentry[i].DIR_Name[0] == 0xE5 || (dentry[i].DIR_Attr & 0x10) == 0x10) { // Skip deleted entries and subdirectories.
-            continue;
-        }
-
-        char formattedName[12];
-        memcpy(formattedName, dentry[i].DIR_Name, 11);
-        formattedName[11] = '\0'; // Ensure null-termination.
-
-        // Format the name from FAT directory format to a normal string
-        formatFATNameToReadable(dentry[i].DIR_Name, formattedName);
-
-        // Check if the file is open by comparing with open files list.
-        if (fileIsOpen(formattedName)) {
-            free(buffer);
-            return true;
-        }
-    }
-
-    // Free the buffer after use.
-    free(buffer);
-    return false;
-}
 // uint32_t findParentCluster(uint32_t childCluster) {
 //     if (dirStack.size > 1) {
 //         for (int i = dirStack.size - 1; i > 0; i--) {
@@ -1805,245 +1752,5 @@ bool isAnyFileOpenInDirectory(uint32_t dirCluster) {
 // }
 
 //debug
-void printStack() {
-    printf("Current directory stack:\n");
-    for (int i = 0; i < dirStack.size; i++) {
-        printf("Level %d: %s, Cluster %u\n", i, dirStack.directoryPath[i], dirStack.clusterNumber[i]);
-    }
-}
 
 
-
-
-void formatFATNameToReadable(const char rawFATName[11], char readableName[13]) {
-    int nameIndex = 0;
-    int extIndex = 0;
-    char extension[4] = {0}; // Buffer for the extension, should not exceed 3 characters + null terminator
-
-    // Extract the name part
-    for (int i = 0; i < 8; i++) {
-        if (rawFATName[i] != ' ')
-            readableName[nameIndex++] = rawFATName[i];
-    }
-    readableName[nameIndex] = '\0'; // Null terminate the name part
-
-    // Extract the extension part
-    for (int i = 8; i < 11; i++) {
-        if (rawFATName[i] != ' ')
-            extension[extIndex++] = rawFATName[i];
-    }
-    extension[extIndex] = '\0'; // Null terminate the extension
-
-    // If there is an extension, append it to the name with a dot
-    if (extension[0] != '\0') {
-        strcat(readableName, ".");
-        strcat(readableName, extension);
-    }
-}
-
-// Function to handle the 'rmdir' command
-int rmdir(const char *dirName) {
-    uint32_t dirCluster = findDirectoryCluster(dirName);
-    if (dirCluster == 0) {
-        fprintf(stderr, "Directory not found: %s\n", dirName);
-        return -1;
-    }
-
-    if (!isDirectoryEmpty(dirCluster)) {
-        fprintf(stderr, "Directory is not empty: %s\n", dirName);
-        return -1;
-    }
-
-    uint32_t parentCluster = findParentCluster(dirCluster);
-    if (removeDirectoryEntry(parentCluster, dirName) != 0) {
-        fprintf(stderr, "Failed to remove directory entry: %s\n", dirName);
-        return -1;
-    }
-
-    clearFATEntries(dirCluster);
-    printf("Directory removed: %s\n", dirName);
-    return 0;
-}
-
-uint32_t findDirectoryCluster(const char *dirName) {
-    printf("Searching for directory: %s\n", dirName);
-
-    uint8_t *buffer = malloc(bs.bytesPerSector * bs.sectorsPerCluster);
-    if (!buffer) {
-        perror("Memory allocation failed");
-        return 0;
-    }
-
-    if (strcmp(dirName, "..") == 0) {
-        if (dirStack.size == 1) {
-            printf("Already at root directory\n");
-            free(buffer);
-            return 2;  // Assuming root cluster number is 2
-        }
-        uint32_t parent = dirStack.clusterNumber[dirStack.size - 2];
-        free(buffer);
-        return parent;
-    }
-
-    if (strcmp(dirName, ".") == 0) {
-        free(buffer);
-        return currentDirectoryCluster;
-    }
-
-    char dirNameUpper[12];
-    memset(dirNameUpper, ' ', 11);
-    dirNameUpper[11] = '\0';
-    int nameLen = strlen(dirName);
-    for (int i = 0; i < nameLen && i < 11; i++) {
-        dirNameUpper[i] = toupper((unsigned char)dirName[i]);
-    }
-
-    uint32_t cluster = currentDirectoryCluster;
-    do {
-        readCluster(cluster, buffer);
-        dentry_t *dentry = (dentry_t *)buffer;
-        for (int i = 0; i < (bs.bytesPerSector * bs.sectorsPerCluster) / sizeof(dentry_t); i++) {
-            if (dentry[i].DIR_Name[0] == 0) break;
-            if (dentry[i].DIR_Name[0] == 0xE5) continue;
-            if ((dentry[i].DIR_Attr & 0x10) != 0x10) continue;
-
-            char name[12];
-            memcpy(name, dentry[i].DIR_Name, 11);
-            name[11] = '\0';
-            for (int j = 0; j < 11; j++) name[j] = toupper((unsigned char)name[j]);
-
-            if (strncmp(name, dirNameUpper, 11) == 0) {
-                uint32_t clusterNumber = ((uint32_t)dentry[i].DIR_FstClusHI << 16) | dentry[i].DIR_FstClusLO;
-                free(buffer);
-                printf("Directory found: %s at cluster %u\n", dirName, clusterNumber);
-                return clusterNumber;
-            }
-        }
-        cluster = readFATEntry(cluster);
-    } while (cluster < 0x0FFFFFF8);
-
-    printf("Directory not found: %s\n", dirName);
-    free(buffer);
-    return 0;
-}
-// bool isDirectoryEmpty(uint32_t dirCluster) {
-//     printf("Checking if directory cluster %u is empty\n", dirCluster);
-//     uint8_t *buffer = malloc(bs.bytesPerSector * bs.sectorsPerCluster);
-//     if (!buffer) {
-//         perror("Memory allocation failed");
-//         return false;
-//     }
-
-//     readCluster(dirCluster, buffer);
-//     dentry_t *dentry = (dentry_t *)buffer;
-//     bool isEmpty = true;
-
-//     for (int i = 2; i < (bs.bytesPerSector * bs.sectorsPerCluster) / sizeof(dentry_t); i++) {
-//         if (dentry[i].DIR_Name[0] != 0x00 && dentry[i].DIR_Name[0] != 0xE5) {
-//             isEmpty = false;
-//             break;
-//         }
-//     }
-
-//     free(buffer);
-//     printf("Directory cluster %u is %s\n", dirCluster, isEmpty ? "empty" : "not empty");
-//     return isEmpty;
-// }
-bool isDirectoryEmpty(uint32_t dirCluster) {
-    uint8_t *buffer = malloc(bs.bytesPerSector * bs.sectorsPerCluster);
-    if (!buffer) {
-        perror("Failed to allocate memory for directory check.");
-        return false;  // Return false to prevent deletion on allocation failure.
-    }
-
-    readCluster(dirCluster, buffer);
-    dentry_t *entry = (dentry_t *)buffer;
-    int entriesFound = 0;
-
-    // Check for more than two entries ('.' and '..' should be the only ones in an empty directory)
-    for (int i = 0; i < (bs.bytesPerSector * bs.sectorsPerCluster) / sizeof(dentry_t); i++, entry++) {
-        if (entry->DIR_Name[0] == 0x00) {
-            break;  // No more entries
-        }
-        if (entry->DIR_Name[0] != 0xE5 && (entry->DIR_Attr & ATTR_DIRECTORY)) { // Count non-deleted directory entries
-            entriesFound++;
-            if (entriesFound > 2) {
-                free(buffer);
-                return false;  // Directory is not empty
-            }
-        }
-    }
-
-    free(buffer);
-    return true;  // Directory is empty
-}
-
-void changeDirectory(const char *dirName) {
-    uint32_t newDirCluster = findDirectoryCluster(dirName);
-    if (newDirCluster) {
-        printf("Changing directory to %s, cluster %u\n", dirName, newDirCluster);
-        currentDirectoryCluster = newDirCluster;
-        pushDir(dirName, newDirCluster);  // This needs to be done whenever you cd into a new dir
-    } else {
-        printf("Directory not found: %s\n", dirName);
-    }
-}
-
-int removeDirectoryEntry(uint32_t parentCluster, const char *dirName) {
-    uint8_t *buffer = malloc(bs.bytesPerSector * bs.sectorsPerCluster);
-    if (!buffer) {
-        perror("Memory allocation failed");
-        return -1;
-    }
-
-    readCluster(parentCluster, buffer);
-    dentry_t *dentry = (dentry_t *)buffer;
-
-    for (int i = 0; i < (bs.bytesPerSector * bs.sectorsPerCluster) / sizeof(dentry_t); i++) {
-        if (strncmp(dentry[i].DIR_Name, dirName, 11) == 0) {
-            dentry[i].DIR_Name[0] = 0xE5; // Mark as deleted
-            writeCluster(parentCluster, buffer); // Write changes back
-            free(buffer);
-            return 0; // Success
-        }
-    }
-
-    free(buffer);
-    return -1; // Entry not found or another error
-}
-// Improved findParentCluster function
-uint32_t findParentCluster(uint32_t childCluster) {
-    if (dirStack.size > 1) {  // Ensure there is a parent (root should always be at index 0)
-        for (int i = dirStack.size - 1; i > 0; i--) {
-            if (dirStack.clusterNumber[i] == childCluster) {
-                return dirStack.clusterNumber[i - 1];  // Return the previous entry in the stack
-            }
-        }
-    }
-    printf("No parent cluster tracked for cluster %u, using root\n", childCluster);
-    return 2;  // Use root cluster if no parent is tracked or handle as an error
-}
-
-
-int removeDirectory(const char *dirName) {
-    uint32_t dirCluster = findDirectoryCluster(dirName);
-    if (dirCluster == 0) {
-        printf("Directory not found: %s\n", dirName);
-        return -1;
-    }
-
-    if (!isDirectoryEmpty(dirCluster)) {
-        printf("Directory '%s' is not empty.\n", dirName);
-        return -1;
-    }
-
-    uint32_t parentCluster = findParentCluster(dirCluster);
-    if (!removeDirectoryEntry(parentCluster, dirName)) {
-        printf("Failed to remove directory entry for '%s'.\n", dirName);
-        return -1;
-    }
-
-    clearFATEntries(dirCluster);  // Optionally, clear the cluster chain in the FAT table.
-    printf("Directory '%s' successfully removed.\n", dirName);
-    return 0;
-}

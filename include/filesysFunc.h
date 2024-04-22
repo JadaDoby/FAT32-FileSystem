@@ -119,7 +119,6 @@ uint32_t getsize(uint32_t cluster, const char *filename);
 void formatFATNameToReadable(const char rawFATName[11], char readableName[13]);
 dentry_t *getDentryB(const char *fileName, uint8_t *buffer);
 dentry_t *getDentry(const char *fileName);
-void readFile(const char *filename, int size);
 bool fileIsOpen(const char *filename);
 bool deleteFile(const char *filename);
 int removeDirectory(const char *dirName);

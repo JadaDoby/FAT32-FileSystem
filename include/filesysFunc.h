@@ -13,8 +13,7 @@
 #define MAX_STACK_SIZE 128
 #define ATTR_DIRECTORY 0x10
 #define ENTRY_SIZE 32
-#define MAX_OPEN_FILES 10
-#define MAX_DIR_ENTRIES 128
+#define MAX_OPEN_FILES 16
 
 typedef struct
 {
@@ -57,7 +56,6 @@ typedef struct
     uint32_t clusterNumber[MAX_STACK_SIZE];
 } DirectoryStack;
 
-
 // Function prototypes
 int mountImage(const char *imageName);
 void printInfo();
@@ -67,9 +65,8 @@ void initDirStack();
 void freeDirStack();
 const char *getCurrentDirPath();
 uint32_t clusterToSector(uint32_t cluster);
-void clearFATEntries(uint32_t cluster);
 void readCluster(uint32_t clusterNumber, uint8_t *buffer);
-uint32_t nextCluster(uint32_t clusterNumber);
+uint32_t readFATEntry(uint32_t clusterNumber);
 void dbg_print_dentry(dentry_t *dentry);
 uint32_t findDirectoryCluster(const char *dirName);
 void processCommand(tokenlist *tokens);
@@ -83,11 +80,10 @@ int writeEntryToDisk(uint32_t parentCluster, const uint8_t *entry);
 void writeFATEntry(uint32_t clusterNumber, uint32_t value);
 int initDirectoryCluster(uint32_t newCluster, uint32_t parentCluster);
 int updateParentDirectory(uint32_t parentCluster, const char *dirName, uint32_t newCluster);
-void cleartheCluster(uint32_t clusterNumber);
+void clearCluster(uint32_t clusterNumber);
 uint32_t clusterToSector(uint32_t cluster);
-bool isValidMode(const char *mode);
 bool is_8_3_format_directory(const char *name);
-bool DirectoryFull(uint32_t parentCluster);
+bool isDirectoryFull(uint32_t parentCluster);
 int linkClusterToDirectory(uint32_t currentDirectoryCluster, uint32_t newCluster);
 int addDirectory(uint32_t parentCluster, const char *dirName);
 int createFile(const char *fileName);
@@ -108,28 +104,14 @@ const char *getString(const tokenlist *tokens);
 int seekFile(const char *filename, long offset);
 void listOpenFiles(void);
 int findFreeSessionId();
-void formatFATNameToReadable(const char rawFATName[11], char readableName[13]);
-bool linkClusters(uint32_t lastCluster, uint32_t newCluster);
-bool deleteFile(const char *filename);
-bool fileIsOpen(const char *filename);
+bool isValidMode(const char *mode);
 bool isFileOpenForReading(const char *filename);
 int readFile(const char *filename, size_t size);
-uint32_t findFileCluster(const char *fileName);
-uint32_t getsize(uint32_t cluster, const char *filename);
-void formatFATNameToReadable(const char rawFATName[11], char readableName[13]);
 dentry_t *getDentryB(const char *fileName, uint8_t *buffer);
 dentry_t *getDentry(const char *fileName);
-bool fileIsOpen(const char *filename);
-bool deleteFile(const char *filename);
-int removeDirectory(const char *dirName);
-bool isDirectoryEmpty(uint32_t dirCluster);
-void writeCluster(uint32_t cluster, const uint8_t *buffer);
+bool deleteFile(const char *fileName);
+bool fileIsOpen(const char *fileName);
 void clearFATEntries(uint32_t cluster);
-bool isAnyFileOpenInDirectory(uint32_t dirCluster);
-int removeDirectoryEntry(uint32_t dirCluster, const char *dirName);
-uint32_t findParentCluster(uint32_t dirCluster);
-void printStack(); //debugging
-void changeDirectory(const char *dirName) ; //debug
+int writeToFile(const char *filename, const char *data);
 
-
-#endif 
+#endif

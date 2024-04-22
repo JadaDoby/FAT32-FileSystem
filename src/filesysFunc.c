@@ -5,11 +5,11 @@ uint32_t currentDirectoryCluster;
 int fd;
 
 OpenFile openFiles[MAX_OPEN_FILES];
-extern int counts[MAX_OPEN_FILES];  // Declaration of the counts array
+extern int counts[MAX_OPEN_FILES]; // Declaration of the counts array
 
 int sessionIdTracker[MAX_OPEN_FILES] = {0}; // Tracks whether a session ID is in use
 int highestSessionId = 0;
-extern int globalSessionId;  // Declaration of the global session ID tracker
+extern int globalSessionId; // Declaration of the global session ID tracker
 
 char *get_input(void)
 {
@@ -133,28 +133,28 @@ uint32_t clusterToSector(uint32_t cluster)
     return sector;
 }
 
-// void readCluster(uint32_t clusterNumber, uint8_t *buffer)
-// {
-//     uint32_t firstSector = clusterToSector(clusterNumber);
-//     ssize_t bytesRead = pread(fd, buffer, bs.bytesPerSector * bs.sectorsPerCluster, firstSector * bs.bytesPerSector);
-//     if (bytesRead < bs.bytesPerSector * bs.sectorsPerCluster)
-//     {
-//         perror("Failed to read full cluster");
-//     }
-// }
+void readCluster(uint32_t clusterNumber, uint8_t *buffer)
+{
+    uint32_t firstSector = clusterToSector(clusterNumber);
+    ssize_t bytesRead = pread(fd, buffer, bs.bytesPerSector * bs.sectorsPerCluster, firstSector * bs.bytesPerSector);
+    if (bytesRead < bs.bytesPerSector * bs.sectorsPerCluster)
+    {
+        perror("Failed to read full cluster");
+    }
+}
 
-uint32_t readFATEntry(uint32_t clusterNumber) {
+uint32_t nextCluster(uint32_t clusterNumber)
+{
     uint32_t fatOffset = clusterNumber * 4; // 4 bytes per FAT32 entry
     uint32_t fatSector = bs.reservedSectors + (fatOffset / bs.bytesPerSector);
     uint32_t entOffset = fatOffset % bs.bytesPerSector;
-    uint8_t sectorBuffer[512]; // Temporary buffer for the sector
+    uint8_t sectorBuffer[512];                                   // Temporary buffer for the sector
     pread(fd, sectorBuffer, 512, fatSector * bs.bytesPerSector); // Read the sector containing the FAT entry
     uint32_t nextCluster;
     memcpy(&nextCluster, &sectorBuffer[entOffset], sizeof(nextCluster));
     nextCluster &= 0x0FFFFFFF; // Mask to get 28 bits, handling FAT32 specifics
     return nextCluster;
 }
-
 
 uint32_t findDirectoryCluster(const char *dirName)
 {
@@ -165,7 +165,6 @@ uint32_t findDirectoryCluster(const char *dirName)
         return 0;
     }
 
-  
     if (strcmp(dirName, "..") == 0)
     {
         if (dirStack.size == 1)
@@ -176,7 +175,7 @@ uint32_t findDirectoryCluster(const char *dirName)
         }
         popDir();
         uint32_t parent = dirStack.clusterNumber[dirStack.size - 1];
-      
+
         free(buffer);
         return parent;
     }
@@ -206,7 +205,7 @@ uint32_t findDirectoryCluster(const char *dirName)
                 continue; // Skip deleted entry
             if ((dentry->DIR_Attr & 0x10) != 0x10)
                 continue;
-            
+
             char name[12];
             memset(name, ' ', 11); // Initialize name buffer with spaces
             memcpy(name, dentry->DIR_Name, 11);
@@ -222,75 +221,58 @@ uint32_t findDirectoryCluster(const char *dirName)
             if (strcmp(name, dirNameUpper) == 0)
             {
                 free(buffer);
+                // print cluster high and low
                 uint32_t clusterNumber = ((uint32_t)dentry->DIR_FstClusHI << 16) | dentry->DIR_FstClusLO;
-              
                 return clusterNumber;
             }
         }
-        cluster = readFATEntry(cluster);
+        cluster = nextCluster(cluster);
     } while (cluster < 0x0FFFFFF8);
     free(buffer);
     return 0;
 }
 
-void dbg_print_dentry(dentry_t *dentry)
+void listDirectory(uint32_t cluster)
 {
-    if (dentry == NULL)
-    {
-        return;
-    }
-    printf("DIR_Name: %s\n", dentry->DIR_Name);
-    printf("DIR_Attr: 0x%x\n", dentry->DIR_Attr);
-    printf("DIR_FstClusHI: 0x%x\n", dentry->DIR_FstClusHI);
-    printf("DIR_FstClusLO: 0x%x\n", dentry->DIR_FstClusLO);
-    printf("DIR_FileSize: %u\n", dentry->DIR_FileSize);
-}
-
-void listDirectory(uint32_t cluster) {
     uint8_t *buffer = malloc(bs.bytesPerSector * bs.sectorsPerCluster);
-    if (!buffer) {
+    if (!buffer)
+    {
         printf("Failed to allocate memory for directory listing.\n");
         return;
     }
 
-    int isFirst = 1; // To handle formatting for the first entry
-    do {
+    int isFirst = 1;
+    do
+    {
         readCluster(cluster, buffer);
         dentry_t *entry = (dentry_t *)buffer;
         int found = 0;
 
-        for (int i = 0; i < (bs.bytesPerSector * bs.sectorsPerCluster) / sizeof(dentry_t); i++, entry++) {
-            if (entry->DIR_Name[0] == 0x00) {
+        for (int i = 0; i < (bs.bytesPerSector * bs.sectorsPerCluster) / sizeof(dentry_t); i++, entry++)
+        {
+            if (entry->DIR_Name[0] == 0x00)
+            {
                 break;
             }
-            if (entry->DIR_Name[0] == 0xE5 || (entry->DIR_Attr & 0x0F) == 0x0F) continue; // Skip deleted and long name entries
+            if (entry->DIR_Name[0] == 0xE5 || (entry->DIR_Attr & 0x0F) == 0x0F)
+                continue; // Skip deleted and long name entries
 
             char formattedName[13];
             formatFATNameToReadable(entry->DIR_Name, formattedName);
-            if (!isFirst) printf(" "); // Print space before the next name
+            if (!isFirst)
+                printf(" "); // Print space before the next name
             printf("%s", formattedName);
             isFirst = 0; // After the first name, all subsequent names get a space before them
             found = 1;
         }
-        if (!found && isFirst) printf("No valid entries found in cluster %u.\n", cluster);
-        cluster = readFATEntry(cluster); // Advance to the next cluster
+        if (!found && isFirst)
+            printf("No valid entries found in cluster %u.\n", cluster);
+        cluster = nextCluster(cluster); // Advance to the next cluster
     } while (cluster < 0x0FFFFFF8 && cluster != 0);
     printf("\n"); // New line after all entries
 
     free(buffer);
 }
-        
-
-
-void readCluster(uint32_t clusterNumber, uint8_t *buffer) {
-    uint32_t firstSector = clusterToSector(clusterNumber);
-    ssize_t bytesRead = pread(fd, buffer, bs.bytesPerSector * bs.sectorsPerCluster, firstSector * bs.bytesPerSector);
-    if (bytesRead < bs.bytesPerSector * bs.sectorsPerCluster) {
-
-    }
-}
-
-
 
 int createDirEntry(uint32_t parentCluster, const char *dirName)
 {
@@ -313,39 +295,42 @@ int createDirEntry(uint32_t parentCluster, const char *dirName)
     return 0;                                                             // Success
 }
 
-bool linkClusters(uint32_t lastCluster, uint32_t newCluster) {
+bool linkClusters(uint32_t lastCluster, uint32_t newCluster)
+{
 
     writeFATEntry(lastCluster, newCluster);
     writeFATEntry(newCluster, 0x0FFFFFFF);
-    return true; 
+    return true;
 }
 
-
-void formatFATNameToReadable(const char rawFATName[11], char readableName[13]) {
+void formatFATNameToReadable(const char rawFATName[11], char readableName[13])
+{
     int readableNameLength = 0;
     // Process the 8-character name portion from the FAT filename
-    for (int i = 0; i < 8 && rawFATName[i] != ' '; i++) {
+    for (int i = 0; i < 8 && rawFATName[i] != ' '; i++)
+    {
         readableName[readableNameLength++] = rawFATName[i];
     }
 
     // Process the 3-character extension
     int extensionLength = 0;
     char extensionBuffer[4] = {0}; // Initialize with zero to ensure null-termination
-    for (int i = 8; i < 11 && rawFATName[i] != ' '; i++) {
+    for (int i = 8; i < 11 && rawFATName[i] != ' '; i++)
+    {
         extensionBuffer[extensionLength++] = rawFATName[i];
     }
 
     // If there is an extension, append a dot and the extension to the name
-    if (extensionLength > 0) {
+    if (extensionLength > 0)
+    {
         readableName[readableNameLength++] = '.';
-        for (int i = 0; i < extensionLength; i++) {
+        for (int i = 0; i < extensionLength; i++)
+        {
             readableName[readableNameLength++] = extensionBuffer[i];
         }
     }
     readableName[readableNameLength] = '\0'; // Null-terminate the formatted name
 }
-
-
 
 void formatNameToFAT(const char *name, uint8_t *entryBuffer)
 {
@@ -387,7 +372,8 @@ void writeFATEntry(uint32_t clusterNumber, uint32_t value)
     pwrite(fd, sectorBuffer, bs.bytesPerSector, fatSector * bs.bytesPerSector); // Write back the modified sector
 }
 
-int writeEntryToDisk(uint32_t parentCluster, const uint8_t *entry) {
+int writeEntryToDisk(uint32_t parentCluster, const uint8_t *entry)
+{
     uint32_t sectorNumber = clusterToSector(parentCluster);
     int found = 0;
     uint32_t sectorSize = bs.bytesPerSector;
@@ -398,45 +384,55 @@ int writeEntryToDisk(uint32_t parentCluster, const uint8_t *entry) {
     memset(buffer, 0, clusterSize);
 
     // Read the entire cluster at once
-    if (pread(fd, buffer, clusterSize, sectorNumber * sectorSize) != clusterSize) {
+    if (pread(fd, buffer, clusterSize, sectorNumber * sectorSize) != clusterSize)
+    {
         perror("Error reading sector");
         return -1;
     }
 
     // Iterate over each entry within the cluster to find a free or deleted entry
-    for (int i = 0; i < clusterSize; i += ENTRY_SIZE) {
-        if (buffer[i] == 0x00 || buffer[i] == 0xE5) {  // Check for free (0x00) or deleted (0xE5) entries
-            memcpy(&buffer[i], entry, ENTRY_SIZE);     // Copy the new directory entry to the buffer
+    for (int i = 0; i < clusterSize; i += ENTRY_SIZE)
+    {
+        if (buffer[i] == 0x00 || buffer[i] == 0xE5)
+        {                                          // Check for free (0x00) or deleted (0xE5) entries
+            memcpy(&buffer[i], entry, ENTRY_SIZE); // Copy the new directory entry to the buffer
             found = 1;
             break;
         }
     }
 
     // If a free entry was found, write the entire cluster back to disk
-    if (found) {
-        if (pwrite(fd, buffer, clusterSize, sectorNumber * sectorSize) != clusterSize) {
+    if (found)
+    {
+        if (pwrite(fd, buffer, clusterSize, sectorNumber * sectorSize) != clusterSize)
+        {
             perror("Error writing sector");
             return -1;
         }
         return 0;
-    } else {
+    }
+    else
+    {
         // Attempt to allocate a new cluster for directory expansion
         uint32_t newCluster = allocateCluster();
-        if (newCluster == 0) {
+        if (newCluster == 0)
+        {
             printf("No free clusters available to allocate for directory expansion.\n");
             return -1;
         }
         // Link the new cluster to the directory's cluster chain
-        if (!linkClusters(parentCluster, newCluster)) {
+        if (!linkClusters(parentCluster, newCluster))
+        {
             printf("Failed to link new cluster to directory.\n");
             return -1;
         }
 
         // Write the entry to the new cluster
-        memset(buffer, 0, clusterSize);  // Clear buffer for the new cluster
+        memset(buffer, 0, clusterSize); // Clear buffer for the new cluster
         memcpy(buffer, entry, ENTRY_SIZE);
-        sectorNumber = clusterToSector(newCluster);  // Update sector number for the new cluster
-        if (pwrite(fd, buffer, clusterSize, sectorNumber * sectorSize) != clusterSize) {
+        sectorNumber = clusterToSector(newCluster); // Update sector number for the new cluster
+        if (pwrite(fd, buffer, clusterSize, sectorNumber * sectorSize) != clusterSize)
+        {
             perror("Failed to write directory entry to new cluster");
             return -1;
         }
@@ -444,15 +440,14 @@ int writeEntryToDisk(uint32_t parentCluster, const uint8_t *entry) {
     }
 }
 
-
 uint32_t allocateCluster()
 {
-    uint32_t clusterNumber, nextCluster;
+    uint32_t clusterNumber, nextcluster;
     // Start scanning from cluster 2 (the first data cluster in FAT32)
     for (clusterNumber = 2; clusterNumber < bs.totalSectors / bs.sectorsPerCluster; clusterNumber++)
     {
-        nextCluster = readFATEntry(clusterNumber);
-        if (nextCluster == 0)
+        nextcluster = nextCluster(clusterNumber);
+        if (nextcluster == 0)
         { // 0 indicates a free cluster
             // Mark the cluster as end of chain
             writeFATEntry(clusterNumber, 0x0FFFFFFF);
@@ -573,8 +568,8 @@ void cleartheCluster(uint32_t clusterNumber)
         if (pwrite(fd, buffer, bs.bytesPerSector, (sector + i) * bs.bytesPerSector) != bs.bytesPerSector)
         {
             perror("Failed to clear cluster");
-        
-            break; 
+
+            break;
         }
     }
 }
@@ -601,19 +596,22 @@ bool DirectoryFull(uint32_t parentCluster)
             }
         }
 
-        parentCluster = readFATEntry(parentCluster); // Get the next cluster in the chain
+        parentCluster = nextCluster(parentCluster); // Get the next cluster in the chain
     } while (parentCluster < 0x0FFFFFF8);
 
     return true; // No free entry found in any cluster, directory is full
 }
 
-int expandDirectory(uint32_t parentCluster) {
+int expandDirectory(uint32_t parentCluster)
+{
     uint32_t newCluster = allocateCluster();
-    if (newCluster == 0) {
+    if (newCluster == 0)
+    {
         printf("No free clusters available.\n");
         return -1;
     }
-    if (!linkClusters(parentCluster, newCluster)) {
+    if (!linkClusters(parentCluster, newCluster))
+    {
         printf("Failed to link new cluster %u to parent cluster %u.\n", newCluster, parentCluster);
         return -1;
     }
@@ -647,11 +645,11 @@ int addDirectory(uint32_t parentCluster, const char *dirName)
 int linkClusterToDirectory(uint32_t directoryCluster, uint32_t newCluster)
 {
     uint32_t lastCluster = directoryCluster;
-    uint32_t nextCluster;
+    uint32_t nextcluster;
 
-    while ((nextCluster = readFATEntry(lastCluster)) != 0x0FFFFFFF)
+    while ((nextcluster = nextCluster(lastCluster)) != 0x0FFFFFFF)
     {
-        lastCluster = nextCluster;
+        lastCluster = nextcluster;
     }
 
     // Link the new cluster
@@ -684,7 +682,7 @@ void processCommand(tokenlist *tokens)
             }
             else
             {
-                printf("Directory not found: %s\n", tokens->items[1]);
+                printf("error: %s does not exist.\n", tokens->items[1]);
             }
         }
     }
@@ -707,7 +705,6 @@ void processCommand(tokenlist *tokens)
     {
         if (createFile(tokens->items[1]) == 0)
         {
-           
         }
         else
         {
@@ -748,7 +745,7 @@ void processCommand(tokenlist *tokens)
             printf("Failed to write data to '%s'.\n", tokens->items[1]);
         }
     }
-    else if(strcmp(tokens->items[0], "rm") == 0 && tokens->size > 1)
+    else if (strcmp(tokens->items[0], "rm") == 0 && tokens->size > 1)
     {
         if (deleteFile(tokens->items[1]))
         {
@@ -759,17 +756,20 @@ void processCommand(tokenlist *tokens)
             printf("Failed to remove file '%s'.\n", tokens->items[1]);
         }
     }
-    else if (strcmp(tokens->items[0], "exit") == 0)
-    {
-        printf("Exiting program.\n");
-        exit(0); 
-    }
-
     else if (strcmp(tokens->items[0], "read") == 0 && tokens->size == 3)
     {
         const char *filename = tokens->items[1];
-        size_t size = atoi(tokens->items[2]); 
-        readFile(filename, size);
+        int size = atoi(tokens->items[2]); // Convert size from string to integer
+
+        if (readFile(filename, size) == -1)
+        {
+            printf("Failed to read file: %s\n", filename);
+        }
+    }
+    else if (strcmp(tokens->items[0], "exit") == 0)
+    {
+        printf("Exiting program.\n");
+        exit(0);
     }
     else
     {
@@ -777,15 +777,19 @@ void processCommand(tokenlist *tokens)
         printf("Unknown command.\n");
     }
 }
-bool is_8_3_format_directory(const char *name) {
+bool is_8_3_format_directory(const char *name)
+{
     if (!name)
         return false;
     int nameLen = 0, extLen = 0;
     bool dotSeen = false;
 
-    for (int i = 0; name[i] != '\0'; i++) {
-        if (name[i] == '.') {
-            if (dotSeen || i == 0) return false; 
+    for (int i = 0; name[i] != '\0'; i++)
+    {
+        if (name[i] == '.')
+        {
+            if (dotSeen || i == 0)
+                return false;
             dotSeen = true;
             continue;
         }
@@ -794,28 +798,37 @@ bool is_8_3_format_directory(const char *name) {
         if (!isalnum((unsigned char)name[i]) && name[i] != '_')
             return false; // Allow only alphanumeric and underscore
 
-        if (dotSeen) {
+        if (dotSeen)
+        {
             extLen++;
-            if (extLen > 3) return false; //  ext-too long
-        } else {
+            if (extLen > 3)
+                return false; //  ext-too long
+        }
+        else
+        {
             nameLen++;
-            if (nameLen > 8) return false; // Name -too long
+            if (nameLen > 8)
+                return false; // Name -too long
         }
     }
 
-    return nameLen > 0 && (!dotSeen || extLen > 0); 
+    return nameLen > 0 && (!dotSeen || extLen > 0);
 }
 
-bool is_8_3_format_filename(const char *name) {
+bool is_8_3_format_filename(const char *name)
+{
     int nameLen = 0, extLen = 0;
     bool dotSeen = false;
 
     if (name == NULL)
         return false;
 
-    for (int i = 0; name[i] != '\0'; i++) {
-        if (name[i] == '.') {
-            if (dotSeen || i == 0 || name[i + 1] == '\0') return false; // No dot at start or end
+    for (int i = 0; name[i] != '\0'; i++)
+    {
+        if (name[i] == '.')
+        {
+            if (dotSeen || i == 0 || name[i + 1] == '\0')
+                return false; // No dot at start or end
             dotSeen = true;
             continue;
         }
@@ -823,12 +836,17 @@ bool is_8_3_format_filename(const char *name) {
         if (!isalnum((unsigned char)name[i]) && name[i] != '_')
             return false;
 
-        if (dotSeen) {
+        if (dotSeen)
+        {
             extLen++;
-            if (extLen > 3) return false;
-        } else {
+            if (extLen > 3)
+                return false;
+        }
+        else
+        {
             nameLen++;
-            if (nameLen > 8) return false;
+            if (nameLen > 8)
+                return false;
         }
     }
 
@@ -845,9 +863,9 @@ void toUpperCase(char *str)
 }
 bool fileExists(const char *filename)
 {
-    char filenameFAT[12];         
-    memset(filenameFAT, ' ', 11); 
-    filenameFAT[11] = '\0';       // Ensure null termination
+    char filenameFAT[12];
+    memset(filenameFAT, ' ', 11);
+    filenameFAT[11] = '\0'; // Ensure null termination
 
     // Convert input filename to upper case and format it as FAT32 filename
     int nameLen = 0;
@@ -859,7 +877,7 @@ bool fileExists(const char *filename)
         }
         else
         {
-            break; 
+            break;
         }
     }
 
@@ -882,7 +900,7 @@ bool fileExists(const char *filename)
     if (!buffer)
     {
         perror("Memory allocation failed");
-        return true; 
+        return true;
     }
 
     uint32_t cluster = currentDirectoryCluster;
@@ -903,7 +921,7 @@ bool fileExists(const char *filename)
                 return true;
             }
         }
-        cluster = readFATEntry(cluster);
+        cluster = nextCluster(cluster);
     } while (cluster < 0x0FFFFFF8);
 
     free(buffer);
@@ -955,12 +973,12 @@ void initOpenFiles()
 {
     for (int i = 0; i < MAX_OPEN_FILES; i++)
     {
-        openFiles[i].isOpeninuse = 0; 
-        openFiles[i].lastSessionId = -1;  // Set to -1 indicating no session has started yet
-        memset(openFiles[i].filename, 0, sizeof(openFiles[i].filename));  // Clear the filename
+        openFiles[i].isOpeninuse = 0;
+        openFiles[i].lastSessionId = -1;                                 // Set to -1 indicating no session has started yet
+        memset(openFiles[i].filename, 0, sizeof(openFiles[i].filename)); // Clear the filename
         printf("Init: Slot %d initialized, lastSessionId = %d\n", i, openFiles[i].lastSessionId);
     }
-        printf("All files initialized properly.\n");
+    printf("All files initialized properly.\n");
 }
 
 void initDirStack()
@@ -1020,7 +1038,7 @@ int writeToFile(const char *filename, const char *data)
     int fileIndex = -1;
     for (int i = 0; i < MAX_OPEN_FILES; i++)
     {
-        if (openFiles[i].isOpeninuse && strcmp(openFiles[i].filename, filename) == 0 && strchr(openFiles[i].mode, 'w'))
+        if (openFiles[i].isOpeninuse && strcmp(openFiles[i].filename, filename) == 0 && ((strchr(openFiles[i].mode, 'w')) || (strcmp(openFiles[i].mode, "rw") == 0)))
         {
             fileIndex = i;
             break;
@@ -1034,9 +1052,17 @@ int writeToFile(const char *filename, const char *data)
     }
 
     OpenFile *file = &openFiles[fileIndex];
+    dentry_t *entry = getDentry(filename);
+    if (entry == NULL)
+    {
+        printf("File not found entry is null: %s\n", filename);
+        return -1;
+    }
+
     uint32_t writeSize = strlen(data);
-    file->cluster = findDirectoryCluster(filename);
-    uint32_t fileSize = getDirectoryEntryFileSize(file->cluster);
+    uint32_t cluster = ((uint32_t)entry->DIR_FstClusHI << 16) | entry->DIR_FstClusLO;
+    file->cluster = cluster;
+    uint32_t fileSize = entry->DIR_FileSize;
     uint32_t newOffset = file->offset + writeSize;
 
     if (newOffset > fileSize)
@@ -1059,7 +1085,6 @@ int writeToFile(const char *filename, const char *data)
 
     uint32_t remaining = writeSize;
     uint32_t written = 0;
-    uint32_t cluster = findDirectoryCluster(filename);
 
     while (remaining > 0)
     {
@@ -1090,12 +1115,12 @@ int writeToFile(const char *filename, const char *data)
 
         written += toWrite;
         remaining -= toWrite;
-        file->offset += toWrite; // Update file offset 
+        file->offset += toWrite; // Update file offset
 
         // Move to next sector/cluster if necessary
         if (sectorOffset + toWrite >= bs.bytesPerSector * bs.sectorsPerCluster)
         {
-            cluster = readFATEntry(cluster); // You need to define how to get the next cluster
+            cluster = nextCluster(cluster);
             if (cluster == 0x0FFFFFFF)
             { // End of cluster
                 free(writeBuffer);
@@ -1118,7 +1143,7 @@ uint32_t findClusterByOffset(uint32_t startCluster, uint32_t offset)
 
     for (uint32_t i = 0; i < clustersToAdvance; i++)
     {
-        cluster = readFATEntry(cluster);
+        cluster = nextCluster(cluster);
     }
     return cluster;
 }
@@ -1127,6 +1152,7 @@ uint32_t getDirectoryEntryFileSize(uint32_t cluster)
 {
     uint8_t buffer[bs.bytesPerSector * bs.sectorsPerCluster];
     uint32_t sector = clusterToSector(cluster);
+    printf("Sector: %d\n", sector);
 
     // Read the cluster where the file's directory entry is expected to be
     if (pread(fd, buffer, bs.bytesPerSector * bs.sectorsPerCluster, sector * bs.bytesPerSector) < 0)
@@ -1154,24 +1180,24 @@ bool extendFile(uint32_t cluster, uint32_t newSize)
     uint32_t clusterSize = bs.bytesPerSector * bs.sectorsPerCluster;
 
     // Traverse to the end of the cluster chain
-    while (readFATEntry(currentCluster) < 0x0FFFFFF8)
+    while (nextCluster(currentCluster) < 0x0FFFFFF8)
     {
         lastCluster = currentCluster;
-        currentCluster = readFATEntry(currentCluster);
+        currentCluster = nextCluster(currentCluster);
     }
 
     // Calculate the current size based on the cluster chain length
     uint32_t currentSize = 0;
     currentCluster = cluster;
-    while (readFATEntry(currentCluster) < 0x0FFFFFF8)
+    while (nextCluster(currentCluster) < 0x0FFFFFF8)
     {
         currentSize += clusterSize;
-        currentCluster = readFATEntry(currentCluster);
+        currentCluster = nextCluster(currentCluster);
     }
 
     if (currentSize >= newSize)
     {
-        return true; 
+        return true;
     }
 
     uint32_t neededSize = newSize - currentSize;
@@ -1209,7 +1235,7 @@ void updateDirectoryEntrySize(uint32_t cluster, uint32_t newSize)
     for (int i = 0; i < (bs.bytesPerSector * bs.sectorsPerCluster) / sizeof(dentry_t); i++)
     {
         if (entry[i].DIR_Name[0] != 0x00 && entry[i].DIR_Name[0] != 0xE5)
-        { 
+        {
             entry[i].DIR_FileSize = newSize;
 
             if (pwrite(fd, buffer, bs.bytesPerSector * bs.sectorsPerCluster, sector * bs.bytesPerSector) < 0)
@@ -1229,7 +1255,7 @@ const char *getString(const tokenlist *tokens)
 
     if (tokens == NULL || tokens->size < 3)
     {
-        return NULL; 
+        return NULL;
     }
 
     int startIndex = -1;
@@ -1344,42 +1370,18 @@ int seekFile(const char *filename, long offset)
     return -1;
 }
 
-bool findFile(const char *filename){
-    uint8_t buffer[bs.bytesPerSector * bs.sectorsPerCluster];
-    char formattedFilename[12] = {0};         // Initialize with null characters
-    strncpy(formattedFilename, filename, 11); // Copy at most 11 characters from filename
-    for (int i = strlen(filename); i < 11; ++i)
+bool fileIsOpen(const char *filename)
+{
+    for (int i = 0; i < MAX_OPEN_FILES; i++)
     {
-        formattedFilename[i] = ' '; // Pad with space
-    }
-
-    strcpy(filename, formattedFilename);
-    printf("Searching for file '%s'\n", filename);
-    uint32_t cluster = currentDirectoryCluster;
-    do
-    {
-        readCluster(cluster, buffer);
-        dentry_t *entry = (dentry_t *)buffer;
-        for (int i = 0; i < (bs.bytesPerSector * bs.sectorsPerCluster) / sizeof(dentry_t); i++, entry++)
+        if (openFiles[i].isOpeninuse && strncmp(openFiles[i].filename, filename, sizeof(openFiles[i].filename)) == 0)
         {
-            if (entry->DIR_Name[0] == 0x00)
-                break;
-            if (entry->DIR_Name[0] == 0xE5)
-                continue;
-            if (entry->DIR_Attr == 0x10)
-                continue;
-
-            // the attributes 
-            if (strcmp(entry->DIR_Name, filename) == 0)
-            {
-                return true;
-            }
+            return true;
         }
-        cluster = readFATEntry(cluster);
-    } while (cluster < 0x0FFFFFF8);
-
+    }
     return false;
 }
+
 bool deleteFile(const char *filename)
 {
     if (fileIsOpen(filename))
@@ -1388,73 +1390,31 @@ bool deleteFile(const char *filename)
         return false;
     }
 
-    bool found = false;
     uint8_t buffer[bs.bytesPerSector * bs.sectorsPerCluster];
-    char formattedFilename[12] = {0};         // Initialize with null characters
-    strncpy(formattedFilename, filename, 11); // Copy at most 11 characters from filename
-    for (int i = strlen(filename); i < 11; ++i)
+    dentry_t *entry = getDentryB(filename, buffer);
+    if (entry == NULL)
     {
-        formattedFilename[i] = ' '; // Pad with space
-    }
-
-    uint32_t cluster = currentDirectoryCluster;
-    do
-    {
-        readCluster(cluster, buffer);
-        dentry_t *entry = (dentry_t *)buffer;
-        for (int i = 0; i < (bs.bytesPerSector * bs.sectorsPerCluster) / sizeof(dentry_t); i++, entry++)
-        {
-            if (entry->DIR_Name[0] == 0x00)
-            {
-                break; // End of directory entries
-            }
-            if (entry->DIR_Name[0] == 0xE5)
-            {
-                continue; // Skip deleted entries
-            }
-            if(entry->DIR_Attr == 0x10)
-            {
-                continue; // Skip directories
-            }
-            if (strncmp(entry->DIR_Name, formattedFilename, 11) == 0)
-            {
-                memset(entry->DIR_Name, 0, 11); 
-
-
-                found = true;
-
-                writeCluster(cluster, buffer);
-
-                uint32_t fileCluster = ((uint32_t)entry->DIR_FstClusHI << 16) | entry->DIR_FstClusLO;
-                clearFATEntries(fileCluster);
-                entry->DIR_Name[0] = 0xE5; 
-                break;
-            }
-        }
-        if (found)
-            break;
-        cluster = readFATEntry(cluster);
-    } while (cluster < 0x0FFFFFF8 && !found);
-
-    if (!found)
-    {
-        printf("File not found: %s\n", filename);
+        printf("File not found entry is null: %s\n", filename);
         return false;
     }
 
+    memset(entry->DIR_Name, 0, 11); // Clear the filename
+
+    // Ensure you write back the modified buffer to disk here.
+    uint32_t sector = clusterToSector(currentDirectoryCluster);
+    if (pwrite(fd, buffer, sizeof(buffer), sector * bs.bytesPerSector) < sizeof(buffer))
+    {
+        perror("Failed to write modified directory sector");
+        return false;
+    }
+
+    // Clear the FAT entries.
+    uint32_t fileCluster = ((uint32_t)entry->DIR_FstClusHI << 16) | entry->DIR_FstClusLO;
+    clearFATEntries(fileCluster);
+    entry->DIR_Name[0] = 0xE5; // Mark the file as deleted.
+
     printf("File '%s' removed successfully.\n", filename);
     return true;
-}
-
-void writeCluster(uint32_t cluster, const uint8_t *buffer)
-{
-    uint32_t sector = clusterToSector(cluster);
-    uint32_t bytesToWrite = bs.bytesPerSector * bs.sectorsPerCluster;
-
-    if (pwrite(fd, buffer, bytesToWrite, sector * bs.bytesPerSector) < bytesToWrite)
-    {
-        perror("Failed to write cluster to disk");
-    }
 }
 
 void clearFATEntries(uint32_t cluster)
@@ -1464,7 +1424,7 @@ void clearFATEntries(uint32_t cluster)
 
     while (nextCluster != 0x0FFFFFFF && nextCluster < 0x0FFFFFF8)
     {
-        fatOffset = nextCluster * 4; 
+        fatOffset = nextCluster * 4;
         fatSector = bs.reservedSectors + (fatOffset / bs.bytesPerSector);
         entOffset = fatOffset % bs.bytesPerSector;
 
@@ -1476,7 +1436,7 @@ void clearFATEntries(uint32_t cluster)
         }
 
         memcpy(&nextCluster, sectorBuffer + entOffset, sizeof(nextCluster));
-        nextCluster &= 0x0FFFFFFF; 
+        nextCluster &= 0x0FFFFFFF;
 
         memset(sectorBuffer + entOffset, 0, sizeof(uint32_t));
 
@@ -1488,83 +1448,294 @@ void clearFATEntries(uint32_t cluster)
     }
 }
 
-int closeFile(const char *filename) {
-    if (!fileExists(filename)) {
+int closeFile(const char *filename)
+{
+    if (!fileExists(filename))
+    {
         printf("Error: File '%s' does not exist.\n", filename);
-        return -1;  
+        return -1;
     }
 
     // File exists, proceed to check if it's open and then close it.
-    for (int i = 0; i < MAX_OPEN_FILES; i++) {
-        if (openFiles[i].isOpeninuse && strncmp(openFiles[i].filename, filename, sizeof(openFiles[i].filename)) == 0) {
-            openFiles[i].isOpeninuse = 0; 
+    for (int i = 0; i < MAX_OPEN_FILES; i++)
+    {
+        if (openFiles[i].isOpeninuse && strncmp(openFiles[i].filename, filename, sizeof(openFiles[i].filename)) == 0)
+        {
+            openFiles[i].isOpeninuse = 0;
             sessionIdTracker[openFiles[i].sessionId] = 0; // Free up this session ID
             printf("File '%s' closed successfully.\n", filename);
-            return 0;  
+            return 0;
         }
     }
 
     printf("Error: File '%s' is not open.\n", filename);
-    return -1;  
+    return -1;
 }
 
-int findFreeSessionId() {
-    for (int i = 0; i < MAX_OPEN_FILES; i++) {
-        if (!sessionIdTracker[i]) {
+int findFreeSessionId()
+{
+    for (int i = 0; i < MAX_OPEN_FILES; i++)
+    {
+        if (!sessionIdTracker[i])
+        {
             sessionIdTracker[i] = 1; // Mark this session ID as in use
-            if (i > highestSessionId) highestSessionId = i; 
+            if (i > highestSessionId)
+                highestSessionId = i;
             return i;
         }
     }
-    return -1; 
+    return -1;
 }
 
-int globalSessionId = 0;  
-int openFile(const char *filename, const char *mode) {
+int globalSessionId = 0;
+bool isValidMode(const char *mode)
+{
+    const char *validModes[] = {"-r", "-w", "-rw", "-wr"};
+    for (int i = 0; i < 4; i++)
+    {
+        if (strcmp(mode, validModes[i]) == 0)
+        {
+            return true; // Mode is valid
+        }
+    }
+    return false; // Mode is not valid
+}
+int openFile(const char *filename, const char *mode)
+{
     // Check if the file exists before attempting to open it
-    if (!fileExists(filename)) {
+    if (!fileExists(filename))
+    {
         printf("Error: File '%s' does not exist.\n", filename);
+        return -1;
+    }
+
+    // check mode
+    if (!isValidMode(mode))
+    {
+        printf("Error: invalid mode %s\n", mode);
         return -1;
     }
 
     int index = -1;
     // Check if the file is already open
-    for (int i = 0; i < MAX_OPEN_FILES; i++) {
-        if (strncmp(openFiles[i].filename, filename, sizeof(openFiles[i].filename)) == 0 && openFiles[i].isOpeninuse) {
+    for (int i = 0; i < MAX_OPEN_FILES; i++)
+    {
+        if (strncmp(openFiles[i].filename, filename, sizeof(openFiles[i].filename)) == 0 && openFiles[i].isOpeninuse)
+        {
             printf("Error: File '%s' is already open.\n", filename);
             return -1; // Return error if the file is already open
         }
-        if (!openFiles[i].isOpeninuse && index == -1) {
-            index = i;  // Remember the first unused slot
+        if (!openFiles[i].isOpeninuse && index == -1)
+        {
+            index = i; // Remember the first unused slot
         }
     }
 
     // If we have an unused slot
-    if (index != -1) {
+    if (index != -1)
+    {
         strncpy(openFiles[index].filename, filename, sizeof(openFiles[index].filename) - 1); // Copy filename
         strcpy(openFiles[index].mode, mode + 1);
         openFiles[index].isOpeninuse = 1; // Mark as in use
-        openFiles[index].offset = 0; 
+        openFiles[index].offset = 0;
         openFiles[index].sessionId = globalSessionId++;
         openFiles[index].lastSessionId = openFiles[index].sessionId; // Update last session ID
-
-
-        return index; 
+        printf("Opened %s\n", filename);
+        printf("mode: %s\n", mode);
+        printf("mode: %s\n", openFiles[index].mode);
+        return index;
     }
 
     printf("Error: Too many open files.\n");
     return -1;
 }
 
-
-void listOpenFiles() {
-    printf(" Index        File            Mode      Offset  Path\n");
-    printf("------------ --------------- ---------- ------ ----\n");
-    for (int i = 0; i < MAX_OPEN_FILES; i++) {
-        if (openFiles[i].isOpeninuse) {
-            printf("%12d %-15s %-10s %6d %s\n", 
-                   openFiles[i].sessionId, openFiles[i].filename, openFiles[i].mode, 
-                   openFiles[i].offset, "fat32.img");
+bool isFileOpenForReading(const char *filename)
+{
+    for (int i = 0; i < MAX_OPEN_FILES; i++)
+    {
+        if (openFiles[i].isOpeninuse && strcmp(openFiles[i].filename, filename) == 0 && ((strchr(openFiles[i].mode, 'r')) || (strcmp(openFiles[i].mode, "rw") == 0)))
+        {
+            return true;
         }
     }
+    return false;
+}
+
+int readFile(const char *filename, size_t size)
+{
+    if (!isFileOpenForReading(filename))
+    {
+        printf("Error: File '%s' is not opened for reading.\n", filename);
+        return -1;
+    }
+
+    int fileIndex = -1;
+    for (int i = 0; i < MAX_OPEN_FILES; i++)
+    {
+        if (strcmp(openFiles[i].filename, filename) == 0)
+        {
+            fileIndex = i;
+            break;
+        }
+    }
+    if (fileIndex == -1)
+    {
+        printf("Error: File '%s' not found.\n", filename);
+        return -1;
+    }
+
+    OpenFile *file = &openFiles[fileIndex];
+    dentry_t *dentry = getDentry(filename);
+    if (!dentry)
+    {
+        printf("Error: File not found\n");
+        return -1;
+    }
+
+    uint32_t cluster = ((uint32_t)dentry->DIR_FstClusHI << 16) | dentry->DIR_FstClusLO;
+    uint32_t fileSize = dentry->DIR_FileSize;
+    // print size_t size
+    printf("amount of characters to read: %lu\n", size);
+    printf("File size: %u bytes\n", fileSize);
+    printf("File offset: %u bytes\n", file->offset);
+
+    if (file->offset >= fileSize)
+    {
+        printf("Error: Attempt to read beyond the file size.\n");
+        return -1;
+    }
+
+    size_t readSize = ((file->offset + size) > fileSize) ? (fileSize - file->offset) : size;
+    printf("Read size: %zu bytes\n", readSize);
+
+    uint8_t *buffer = malloc(readSize + 1);
+    if (!buffer)
+    {
+        perror("Memory allocation failed");
+        return -1;
+    }
+
+    uint32_t sector = clusterToSector(cluster);
+    ssize_t bytesRead = pread(fd, buffer, readSize, sector * bs.bytesPerSector + file->offset);
+    if (bytesRead < 0)
+    {
+        perror("Failed to read file");
+        free(buffer);
+        return -1;
+    }
+
+    buffer[bytesRead] = '\0'; // Null-terminate to safely print
+    printf("%s\n", buffer);
+
+    file->offset += bytesRead; // Update the file offset based on actual bytes read
+    printf("offset is %u\n", file->offset);
+
+    free(buffer);
+    return bytesRead;
+}
+
+dentry_t *getDentryB(const char *fileName, uint8_t *buffer)
+{
+    char fileNameUpper[12]; // Buffer to store the uppercase version of dirName
+    strncpy(fileNameUpper, fileName, 11);
+    fileNameUpper[11] = '\0'; // Ensure null-termination
+    // Convert dirNameUpper to uppercase
+    for (int i = 0; fileNameUpper[i]; i++)
+    {
+        fileNameUpper[i] = toupper(fileNameUpper[i]);
+    }
+    uint32_t cluster = currentDirectoryCluster;
+    do
+    {
+        readCluster(cluster, buffer);
+        dentry_t *dentry = (dentry_t *)buffer;
+        for (int i = 0; i < bs.bytesPerSector * bs.sectorsPerCluster / sizeof(dentry_t); i++, dentry++)
+        {
+            char name[12];
+            memset(name, ' ', 11); // Initialize name buffer with spaces
+            memcpy(name, dentry->DIR_Name, 11);
+            name[11] = '\0'; // Null-terminate the string
+            // Uppercase and trim trailing spaces for comparison
+            for (int j = 0; j < 11; j++)
+            {
+                if (name[j] == ' ')
+                    name[j] = '\0'; // Stop at first space
+                else
+                    name[j] = toupper(name[j]);
+            }
+            if (strncmp(name, fileNameUpper, 11) == 0 && dentry->DIR_Name[0] != 0xE5)
+            {
+                return dentry; // Return the pointer directly pointing to the buffer
+            }
+        }
+        cluster = nextCluster(cluster);
+    } while (cluster < 0x0FFFFFF8);
+
+    return NULL; // File not found
+}
+
+dentry_t *getDentry(const char *fileName)
+{
+    uint8_t *buffer = malloc(bs.bytesPerSector * bs.sectorsPerCluster);
+    if (!buffer)
+    {
+        printf("Memory allocation failed\n");
+        return NULL;
+    }
+
+    char fileNameUpper[12]; // Buffer to store the uppercase version of fileName
+    strncpy(fileNameUpper, fileName, 11);
+    fileNameUpper[11] = '\0'; // Ensure null-termination
+
+    // Convert fileNameUpper to uppercase
+    for (int i = 0; fileNameUpper[i]; i++)
+    {
+        fileNameUpper[i] = toupper(fileNameUpper[i]);
+    }
+
+    uint32_t cluster = currentDirectoryCluster; // Assumes currentDirectoryCluster is a global or accessible variable
+    do
+    {
+        readCluster(cluster, buffer);
+        dentry_t *dentry = (dentry_t *)buffer;
+        for (int i = 0; i < bs.bytesPerSector * bs.sectorsPerCluster / sizeof(dentry_t); i++, dentry++)
+        {
+            // Create a null-terminated version of DIR_Name for comparison
+            char name[12];
+            memset(name, ' ', 11); // Initialize name buffer with spaces
+            memcpy(name, dentry->DIR_Name, 11);
+            name[11] = '\0'; // Null-terminate the string
+
+            // Uppercase and trim trailing spaces for comparison
+            for (int j = 0; j < 11; j++)
+            {
+                if (name[j] == ' ')
+                    name[j] = '\0'; // Stop at first space
+                else
+                    name[j] = toupper(name[j]);
+            }
+
+            if (strcmp(name, fileNameUpper) == 0)
+            {
+                // Found the file, allocate memory for the dentry to return
+                dentry_t *foundDentry = malloc(sizeof(dentry_t));
+                if (!foundDentry)
+                {
+                    printf("Memory allocation failed for dentry\n");
+                    free(buffer);
+                    return NULL;
+                }
+                memcpy(foundDentry, dentry, sizeof(dentry_t));
+                free(buffer);
+                return foundDentry;
+            }
+        }
+
+        // Get the next cluster number from the FAT
+        cluster = nextCluster(cluster);
+    } while (cluster < 0x0FFFFFF8); // Continue until an end-of-chain marker in FAT32
+
+    free(buffer);
+    return NULL; // File not found
 }

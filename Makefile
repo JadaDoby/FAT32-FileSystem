@@ -17,7 +17,7 @@ $(EXEC): $(SOURCES)
 
 # Clean up
 run:
-	./$(EXEC) $(FAT32)
+	./$(EXEC) ./$(FAT32)
 clean:
 	rm -f $(EXEC)
 

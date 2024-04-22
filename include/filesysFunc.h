@@ -46,9 +46,8 @@ typedef struct
     int isOpeninuse;
     int lastSessionId;
     int sessionId;
-    uint32_t cluster;    // Starting cluster of the file
+    uint32_t cluster; // Starting cluster of the file
 } OpenFile;
-
 
 typedef struct
 {
@@ -60,14 +59,15 @@ typedef struct
 // Function prototypes
 int mountImage(const char *imageName);
 void printInfo();
-char* popDir();
+char *popDir();
 void pushDir(const char *dirName, uint32_t cluster);
 void initDirStack();
 void freeDirStack();
-const char* getCurrentDirPath();
+const char *getCurrentDirPath();
 uint32_t clusterToSector(uint32_t cluster);
+void clearFATEntries(uint32_t cluster);
 void readCluster(uint32_t clusterNumber, uint8_t *buffer);
-uint32_t readFATEntry(uint32_t clusterNumber);
+uint32_t nextCluster(uint32_t clusterNumber);
 void dbg_print_dentry(dentry_t *dentry);
 uint32_t findDirectoryCluster(const char *dirName);
 void processCommand(tokenlist *tokens);
@@ -83,6 +83,7 @@ int initDirectoryCluster(uint32_t newCluster, uint32_t parentCluster);
 int updateParentDirectory(uint32_t parentCluster, const char *dirName, uint32_t newCluster);
 void cleartheCluster(uint32_t clusterNumber);
 uint32_t clusterToSector(uint32_t cluster);
+bool isValidMode(const char *mode);
 bool is_8_3_format_directory(const char *name);
 bool DirectoryFull(uint32_t parentCluster);
 int linkClusterToDirectory(uint32_t currentDirectoryCluster, uint32_t newCluster);
@@ -107,5 +108,14 @@ void listOpenFiles(void);
 int findFreeSessionId();
 void formatFATNameToReadable(const char rawFATName[11], char readableName[13]);
 bool linkClusters(uint32_t lastCluster, uint32_t newCluster);
+bool deleteFile(const char *filename);
+bool fileIsOpen(const char *filename);
+bool isFileOpenForReading(const char *filename);
+int readFile(const char *filename, size_t size);
+uint32_t findFileCluster(const char *fileName);
+uint32_t getsize(uint32_t cluster, const char *filename);
+void formatFATNameToReadable(const char rawFATName[11], char readableName[13]);
+dentry_t *getDentryB(const char *fileName, uint8_t *buffer);
+dentry_t *getDentry(const char *fileName);
 
 #endif

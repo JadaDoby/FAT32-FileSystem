@@ -13,7 +13,7 @@
 #define MAX_STACK_SIZE 128
 #define ATTR_DIRECTORY 0x10
 #define ENTRY_SIZE 32
-#define MAX_OPEN_FILES 16
+#define MAX_OPEN_FILES 10
 
 typedef struct
 {
